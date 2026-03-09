@@ -195,8 +195,18 @@ namespace ModuleGroupUnitAnalysis.Services.Parsers
       var dims = new List<double>();
       for (int i = 5; i < fields.Count; i++)
       {
-        if (!string.IsNullOrWhiteSpace(fields[i]))
-          dims.Add(NastranFormatUtils.ParseDouble(fields[i]));
+        string f = fields[i].Trim();
+        if (string.IsNullOrWhiteSpace(f)) continue;
+
+        // ★ [추가된 핵심 코드] 
+        // Nastran 줄바꿈 마커(+, *) 등 문자로 이루어진 필드는 치수 배열에서 무시합니다.
+        if (f == "+" || f == "*") continue;
+
+        // 만약 파싱 실패로 0.0이 나왔는데, 실제 텍스트에 숫자 '0'이 없는 경우 (예: "+A123" 같은 마커) 무시
+        double val = NastranFormatUtils.ParseDouble(f);
+        if (val == 0.0 && !f.Contains("0")) continue;
+
+        dims.Add(val);
       }
       _context.Properties.AddWithID(pid, section, dims.ToArray(), mid);
     }
