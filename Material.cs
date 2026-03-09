@@ -74,6 +74,37 @@ namespace ModuleGroupUnitAnalysis.Model.Entities
       return newID;
     }
 
+    /// <summary>
+    /// 지정된 ID로 Material 객체를 생성하여 컬렉션에 강제로 추가합니다.
+    /// (BDF 파싱 등 원본 ID를 유지해야 할 때 사용합니다.)
+    /// </summary>
+    public void AddWithID(
+      int materialID,
+      string name,
+      double youngsModulus,
+      double poissonRatio,
+      double density)
+    {
+      string key = MakeKey(name, youngsModulus, poissonRatio, density);
+
+      // 이미 동일한 ID가 있다면, 기존 Lookup 캐시를 지워 충돌을 방지합니다.
+      if (_materials.TryGetValue(materialID, out var oldMat))
+      {
+        string oldKey = MakeKey(oldMat.Name, oldMat.E, oldMat.Nu, oldMat.Rho);
+        _lookup.Remove(oldKey);
+      }
+
+      // 새로운 매테리얼 객체 생성 및 딕셔너리 할당
+      _materials[materialID] = new Material(name, youngsModulus, poissonRatio, density);
+      _lookup[key] = materialID;
+
+      // 자동 채번 ID가 파싱된 ID와 겹치지 않도록 최대값 동기화
+      if (materialID >= _nextMaterialID)
+      {
+        _nextMaterialID = materialID + 1;
+      }
+    }
+
     public void Remove(int materialID)
     {
       if (!_materials.TryGetValue(materialID, out var mat))
