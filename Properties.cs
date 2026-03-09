@@ -73,6 +73,36 @@ namespace ModuleGroupUnitAnalysis.Model.Entities
       return newID;
     }
 
+    /// <summary>
+    /// 지정된 ID로 Property 객체를 생성하여 컬렉션에 강제로 추가합니다.
+    /// (BDF 파싱 등 원본 ID를 유지해야 할 때 사용합니다.)
+    /// </summary>
+    public void AddWithID(
+      int propertyID,
+      string type,
+      IEnumerable<double> dimensions,
+      int materialID)
+    {
+      string key = MakeKey(type, dimensions, materialID);
+
+      // 이미 동일한 ID가 있다면, 기존 Lookup 캐시를 지워 충돌을 방지합니다.
+      if (_properties.TryGetValue(propertyID, out var oldProp))
+      {
+        string oldKey = MakeKey(oldProp.Type, oldProp.Dim, oldProp.MaterialID);
+        _lookup.Remove(oldKey);
+      }
+
+      // 새로운 프로퍼티 객체 생성 및 딕셔너리 할당
+      _properties[propertyID] = new Property(type, dimensions, materialID);
+      _lookup[key] = propertyID;
+
+      // 자동 채번 ID가 파싱된 ID와 겹치지 않도록 최대값 동기화
+      if (propertyID >= _nextPropertyID)
+      {
+        _nextPropertyID = propertyID + 1;
+      }
+    }
+
     public void Remove(int propertyID)
     {
       if (!_properties.TryGetValue(propertyID, out var prop))
