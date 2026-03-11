@@ -65,11 +65,15 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       // [Stage 2] 유닛 포인트 형태 판별 (Shape Detector)
       LiftingPointShapeDetecter.Run(liftingGroups, _logger, _pipelineDebug);
 
-      // 향후 여기에 Stage 3, 4, 5... 가 깔끔하게 추가될 예정입니다.
-      // 예: LiftingPointVerifier.Run(...) 
-      // 예: HookLocationCalc.Run(...)
+      // [Stage 3] 유닛 포인트 형태 유효성 검증 (Verifier)
+      bool isShapeValid = LiftingPointVerifier.Run(liftingGroups, _logger, _pipelineDebug);
+      if (!isShapeValid)
+      {
+        _logger.LogError("\n[Pipeline Aborted] 권상 포인트의 기하학적 형태가 안전 기준을 통과하지 못해 해석 파이프라인을 중단합니다. 모델의 $$ 위치 지정을 확인하세요.");
+        return; // 파이프라인 강제 종료
+      }
 
-      _logger.LogSuccess("\n▶ 현재까지 작성된 파이프라인이 성공적으로 완료되었습니다.");
+      _logger.LogSuccess("\n▶ 현재까지 작성된 파이프라인(Stage 3)이 성공적으로 완료되었습니다.");
     }
   }
 }
