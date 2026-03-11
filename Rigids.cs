@@ -197,6 +197,23 @@ namespace ModuleGroupUnitAnalysis.Model.Entities
       return true;
     }
 
+    /// <summary>
+    /// 현재 컬렉션에 있는 모든 강체(RBE)의 자유도(CM)를 지정된 값으로 일괄 변경합니다.
+    /// (열팽창 해제 조건 등으로 인한 Nastran FATAL 방지용)
+    /// </summary>
+    public void ForceAllDofs(string newDof = "123456")
+    {
+      var ids = _rigids.Keys.ToList();
+      foreach (var id in ids)
+      {
+        var info = _rigids[id];
+        var extraCopy = info.ExtraData?.ToDictionary(k => k.Key, v => v.Value) ?? new Dictionary<string, string>();
+
+        // 기존 객체를 대체하여 DOF를 덮어씁니다.
+        _rigids[id] = new RigidInfo(info.IndependentNodeID, info.DependentNodeIDs, newDof, extraCopy);
+      }
+    }
+
     public void Remove(int id) => _rigids.Remove(id);
     public bool Contains(int id) => _rigids.ContainsKey(id);
 
