@@ -19,16 +19,18 @@ namespace ModuleGroupUnitAnalysis.Pipeline
     private readonly string _bdfPath;
     private readonly FeModelContext _context;
     private readonly PipelineLogger _logger;
+    private readonly bool _runSanityNastranCheck;
     private readonly bool _forceRigidDof123456;
     private readonly bool _pipelineDebug;
     private readonly bool _verboseDebug;
 
-    public HookTrolleyPipeline(string bdfPath, PipelineLogger logger, bool forceRigidDof123456, 
-      bool pipelineDebug, bool verboseDebug)
+    public HookTrolleyPipeline(string bdfPath, PipelineLogger logger, bool runSanityNastranCheck, 
+      bool forceRigidDof123456, bool pipelineDebug, bool verboseDebug)
     {
       _bdfPath = bdfPath;
       _context = FeModelContext.CreateEmpty();
       _logger = logger;
+      _runSanityNastranCheck = runSanityNastranCheck;
       _forceRigidDof123456 = forceRigidDof123456;
       _pipelineDebug = pipelineDebug;
       _verboseDebug = verboseDebug;
@@ -57,13 +59,21 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       }
 
       // ====================================================================
-      // ★ [신규] [Phase 2] 초기 모델 유효성 평가 (Sanity Nastran Run)
+      // [Phase 2] 초기 모델 유효성 평가 (선택적 구동)
       // ====================================================================
-      bool isNastranPass = SanityNastranRunner.Run(_bdfPath, _context, _forceRigidDof123456, _logger, _pipelineDebug);
-      if (!isNastranPass)
+      if (_runSanityNastranCheck)
       {
-        _logger.LogError("\n[Pipeline Aborted] 초기 모델 Nastran 해석 중 FATAL이 발생하여 파이프라인을 종료합니다.");
-        return;
+        bool isNastranPass = SanityNastranRunner.Run(_bdfPath, _context, _forceRigidDof123456, _logger, _pipelineDebug);
+        if (!isNastranPass)
+        {
+          _logger.LogError("\n[Pipeline Aborted] 초기 모델 Nastran 해석 중 FATAL이 발생하여 파이프라인을 종료합니다.");
+          return;
+        }
+      }
+      else
+      {
+        if (_pipelineDebug)
+          _logger.LogInfo("\n[Phase 2] Sanity Nastran 해석 검증은 건너뜁니다. (옵션 Off)");
       }
 
       // ====================================================================
@@ -84,6 +94,33 @@ namespace ModuleGroupUnitAnalysis.Pipeline
         _logger.LogError("\n[Pipeline Aborted] 권상 포인트 기하학 형태 불량으로 파이프라인을 중단합니다.");
         return;
       }
+
+      // ====================================================================
+      // [Stage 4] Hook / Trolley 3D 정점 좌표 역산
+      // ====================================================================
+      bool isCalcSuccess = LiftingPointCalculator.Run(liftingGroups, _logger, _pipelineDebug);
+      if (!isCalcSuccess)
+      {
+        _logger.LogError("\n[Pipeline Aborted] Hook/Trolley 위치 수학적 계산에 실패하여 파이프라인을 중단합니다. (줄 길이를 확인하세요)");
+        return;
+      }
+
+      // ====================================================================
+      // [Stage 5] COG 기반 위치 미세 보정 (Hook to COG)
+      // ====================================================================
+      LiftingPointCogAdjuster.Run(liftingGroups, cog, _logger, _pipelineDebug);
+
+      // ====================================================================
+      // [Stage 6] 자세 안정성 평가 (Overturn Check)
+      // ====================================================================
+      bool isStable = LiftingOverturnInspector.Run(liftingGroups, cog, _logger, _pipelineDebug);
+      if (!isStable)
+      {
+        _logger.LogError("\n[Pipeline Aborted] 무게중심이 권상 영역을 벗어나 전도(Overturn) 위험이 있어 해석을 중단합니다.");
+        return;
+      }
+
+      _logger.LogSuccess("\n▶ 현재까지 작성된 파이프라인(Stage 5)이 성공적으로 완료되었습니다.");
 
       _logger.LogSuccess("\n▶ 현재까지 작성된 파이프라인이 성공적으로 완료되었습니다.");
     }
