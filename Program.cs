@@ -14,16 +14,24 @@ namespace ModuleGroupUnitAnalysis
       // 1. 디버그 및 로그 옵션 설정
       bool logExport = true;
       bool pipelineDebug = true;
-      bool verboseDebug = false; // 너무 길면 false로 두세요.
+      bool verboseDebug = false;
 
-      bool forceRigidDof123456 = true;
+      // Sanity 체크용 Nastran을 실제로 구동할 것인가? (시간 절약을 위해 평소엔 false)
+      bool runSanityNastranCheck = true;
+
+      // Ubolt DOF 강제 "123456" 설정
+      bool forceRigidDof123456 = false;
+
+      // Nastran 해석 유무
+      bool runNastranAnalysis = true;
 
       // 2. 로거 초기화 및 로그 파일 생성 경로 확정
       var logger = new PipelineLogger(logExport);
       logger.InitializeFile(bdfFile);
 
       // 3. 파이프라인 객체 생성 및 실행 (초깔끔!)
-      var pipeline = new HookTrolleyPipeline(bdfFile, logger, forceRigidDof123456, pipelineDebug, verboseDebug);
+      var pipeline = new HookTrolleyPipeline(bdfFile, logger, runSanityNastranCheck, 
+        forceRigidDof123456, runNastranAnalysis, pipelineDebug, verboseDebug);
       pipeline.Run();
     }
   }
