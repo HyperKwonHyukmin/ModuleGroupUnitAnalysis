@@ -16,6 +16,9 @@ namespace ModuleGroupUnitAnalysis.Pipeline
   {
     public List<int> PipeSpcNodes { get; set; } = new List<int>();
     public List<int> CogSpcNodes { get; set; } = new List<int>();
+
+    // ★ [신규] 생성된 Nastran Bulk Data 카드들을 저장 (GRID, CROD, PROD, SPC1 등)
+    public List<string> GeneratedBulkCards { get; set; } = new List<string>();
   }
 
   /// <summary>
@@ -55,10 +58,19 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       var parser = new NastranBdfParser(_context, _logger, _pipelineDebug, _verboseDebug);
       parser.Parse(_bdfPath);
 
+      // ====================================================================
+      // ★ [이 부분을 BDF 파싱 직후에 밖으로 빼내야 합니다!] 
+      // ====================================================================
+      if (_forceRigidDof123456)
+      {
+        _logger.LogWarning("\n[옵션 적용] 모델 내 모든 RBE2 강체의 DOF를 '123456'으로 강제 고정합니다.");
+        _context.Rigids.ForceAllDofs("123456");
+      }
+
       FeModelDebugger.PrintSummary(_context, _logger, _pipelineDebug, _verboseDebug);
 
       // ====================================================================
-      // [Phase 1] BDF 모델 건전성 검사 및 힐링 (Sanity Check)
+      // [Phase 1] BDF 모델 건전성 검사 및 힐 (Sanity Check)
       // ====================================================================
       bool isModelSane = StructuralSanityInspector.Run(_context, _logger, _pipelineDebug, _verboseDebug);
       if (!isModelSane)
@@ -100,7 +112,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       bool isShapeValid = LiftingPointVerifier.Run(liftingGroups, _logger, _pipelineDebug);
       if (!isShapeValid)
       {
-        _logger.LogError("\n[Pipeline Aborted] 권상 포인트 기하학 형태 불량으로 파이프라인을 중단합니다.");
+        _logger.LogError("\n[Pipeline Aborted] 권상 포인트 기하학 형태 량으로 파이프라인을 중단합니다.");
         return;
       }
 
@@ -142,6 +154,11 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       // 추출된 정보를 파이프라인 변수에 저장 (다음 Exporter 단계에서 꺼내 씀)
       this.SpcData.PipeSpcNodes = pipeSpcs;
       this.SpcData.CogSpcNodes = cogSpcs;
+
+      // ====================================================================
+      // [Stage 9] 권상 정점 및 와이어(CROD) 가상 텍스트 생성
+      // ====================================================================
+      LiftingWireGenerator.Run(liftingGroups, this.SpcData, _logger, _pipelineDebug);
 
       _logger.LogSuccess("\n▶ 현재까지 작성된 파이프라인이 성공적으로 완료되었습니다.");
     }
