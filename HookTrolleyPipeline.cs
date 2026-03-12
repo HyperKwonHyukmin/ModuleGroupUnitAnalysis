@@ -119,9 +119,6 @@ namespace ModuleGroupUnitAnalysis.Pipeline
         _logger.LogError("\n[Pipeline Aborted] 무게중심이 권상 영역을 벗어나 전도(Overturn) 위험이 있어 해석을 중단합니다.");
         return;
       }
-
-      _logger.LogSuccess("\n▶ 현재까지 작성된 파이프라인(Stage 5)이 성공적으로 완료되었습니다.");
-
       _logger.LogSuccess("\n▶ 현재까지 작성된 파이프라인이 성공적으로 완료되었습니다.");
     }
   }
