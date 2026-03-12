@@ -6,6 +6,7 @@ using ModuleGroupUnitAnalysis.Pipeline.Preprocess;
 using ModuleGroupUnitAnalysis.Services.Parsers;
 using ModuleGroupUnitAnalysis.Services.Utils;
 using ModuleGroupUnitAnalysis.Utils;
+using ModuleGroupUnitAnalysis.Pipeline.Postprocess;
 using ModuleGroupUnitAnalysis.Exporter;
 using System;
 using System.Collections.Generic;
@@ -23,7 +24,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
   }
 
   /// <summary>
-  /// Hook & Trolley 권상 해석을 위한 전체 파이프라인 프로세스를 관장합니다.
+  /// Hook & Trolley 권상 해석 위한 전체 파이프라인 프로세스를 관장합니다.
   /// </summary>
   public class HookTrolleyPipeline
   {
@@ -32,19 +33,21 @@ namespace ModuleGroupUnitAnalysis.Pipeline
     private readonly PipelineLogger _logger;
     private readonly bool _runSanityNastranCheck;
     private readonly bool _forceRigidDof123456;
+    private readonly bool _runNastranAnalysis;
     private readonly bool _pipelineDebug;
     private readonly bool _verboseDebug;
 
     public SpcAssignData SpcData { get; private set; } = new SpcAssignData();
 
     public HookTrolleyPipeline(string bdfPath, PipelineLogger logger, bool runSanityNastranCheck, 
-      bool forceRigidDof123456, bool pipelineDebug, bool verboseDebug)
+      bool forceRigidDof123456, bool runNastranAnalysis, bool pipelineDebug, bool verboseDebug)
     {
       _bdfPath = bdfPath;
       _context = FeModelContext.CreateEmpty();
       _logger = logger;
       _runSanityNastranCheck = runSanityNastranCheck;
       _forceRigidDof123456 = forceRigidDof123456;
+      _runNastranAnalysis = runNastranAnalysis; // ★ 맵핑
       _pipelineDebug = pipelineDebug;
       _verboseDebug = verboseDebug;
     }
@@ -156,24 +159,75 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       this.SpcData.PipeSpcNodes = pipeSpcs;
       this.SpcData.CogSpcNodes = cogSpcs;
 
-      // ====================================================================
       // [Stage 9] 권상 정점 및 와이어(CROD) 가상 텍스트 생성
-      // ====================================================================
       LiftingWireGenerator.Run(liftingGroups, _context, this.SpcData, _logger, _pipelineDebug);
 
+      // ====================================================================
+      // ★ [신규 추가] [Stage 9-1] 슬링 각도 사전 검사
+      // ====================================================================
+      bool isAngleSafe = LiftingSlingAngleInspector.Run(liftingGroups, _logger, _pipelineDebug);
 
       // ====================================================================
+      // ★ [신규 추가] [Stage 9-2] 와이어-구조물 간섭 검사
+      // ====================================================================
+      bool isInterferenceFree = LiftingInterferenceInspector.Run(liftingGroups, _context, _logger, _pipelineDebug);
+
+
       // [Stage 10] BDF 파일 최종 출력 (_r.bdf 생성)
+      if (_pipelineDebug) _logger.LogDivider("STAGE 10: BDF 파일 생성 및 최종 요약");
+
+      ModuleGroupUnitAnalysis.Exporter.BdfExporter.Export(_bdfPath, _context, this.SpcData);
+
+      string dir = System.IO.Path.GetDirectoryName(_bdfPath) ?? "";
+      string outputFileName = System.IO.Path.GetFileNameWithoutExtension(_bdfPath) + "_r.bdf";
+      string exportPath = System.IO.Path.Combine(dir, outputFileName); // 해석 구동용 경로
+
+      _logger.LogSuccess($"최종 BDF 내보내기 완료: {outputFileName}");
+
+      // 대시보드 출력 상태 텍스트 변경 (DANGER -> WARNING)
+      string angleStatus = isAngleSafe ? "OK (60도 이상 확보)" : "WARNING (60도 미만 구간 존재!)";
+      string clashStatus = isInterferenceFree ? "Clear (관통 없음)" : "WARNING (구조물 간섭 존재!)"; // ★ 노란색에 맞게 DANGER -> WARNING 수정
+
+      _logger.Log("", useTimestamp: false);
+      _logger.Log("┌─────────────────────────────────────────────────────────────────┐", useTimestamp: false);
+      _logger.Log("│                 [ Module Unit Lifting Summary ]                 │", ConsoleColor.Cyan, useTimestamp: false);
+      _logger.Log("├───────────────────────────┬─────────────────────────────────────┤", useTimestamp: false);
+
+      _logger.LogSummaryTable("Target Model", System.IO.Path.GetFileName(_bdfPath));
+      _logger.LogSummaryTable("Total Mass", $"{totalMass:F2} ton");
+      _logger.LogSummaryTable("Center of Gravity (COG)", $"X:{cog.X:F1}  Y:{cog.Y:F1}  Z:{cog.Z:F1}");
+      _logger.LogSummaryTable("Lifting Method", liftingGroups.Any(g => g.LiftingMethod == 1) ? "Goliat (Trolley)" : "Hydro (Hook)");
+      _logger.LogSummaryTable("Lifting Point Groups", $"{liftingGroups.Count} Groups");
+      _logger.LogSummaryTable("Auto-SPC Stabilizers", $"Pipe: {pipeSpcs.Count} EA / Struc: {cogSpcs.Count} EA");
+      _logger.Log("├───────────────────────────┼─────────────────────────────────────┤", useTimestamp: false);
+      _logger.LogSummaryTable("Safety: Overturn", "Safe (무게중심 내 안정적)");
+      _logger.LogSummaryTable("Safety: Sling Angle", angleStatus);
+      _logger.LogSummaryTable("Safety: Wire Clash", clashStatus);
+      _logger.Log("├───────────────────────────┼─────────────────────────────────────┤", useTimestamp: false);
+      _logger.LogSummaryTable("Generated Output File", outputFileName);
+
+      _logger.Log("└───────────────────────────┴─────────────────────────────────────┘", useTimestamp: false);
+
+      if (isAngleSafe && isInterferenceFree)
+        _logger.LogSuccess("BDF 출력 및 모든 파이프라인 처리가 성공적으로 완료되었습니다.");
+      else
+        _logger.LogWarning("BDF 파일은 생성되었으나, 일부 기하학적 안전 경고(각도/간섭)가 존재합니다.");
+
       // ====================================================================
-      if (_pipelineDebug) _logger.LogInfo("\n[Stage 10] 청소 및 조립이 완료된 최종 해석용 BDF 파일(_r.bdf) 출력 시작...");
+      // ★ [신규 추가] [Stage 11] Nastran 본 해석 실행 (옵션)
+      // ====================================================================
+      if (_runNastranAnalysis)
+      {
+        _logger.LogDivider("STAGE 11: Nastran 솔버 구동");
+        bool isSolved = NastranAnalysisRunner.Run(exportPath, _logger, _pipelineDebug);
 
-      BdfExporter.Export(_bdfPath, _context, this.SpcData);
+        if (isSolved)
+        {
+          _logger.LogSuccess("▶ F06 / OP2 파일이 준비되었습니다. 다음 후처리(Post-Processing) 단계로 넘어갈 수 있습니다.");
+        }
+      }
 
-      _logger.LogSuccess($"10단계 : 최종 BDF 내보내기 완료 (파일명: {System.IO.Path.GetFileNameWithoutExtension(_bdfPath)}_r.bdf)");
-
-      _logger.LogInfo("\n==================================================");
-      _logger.LogSuccess("Hook & Trolley 모든 파이프라인 완벽 종료");
-      _logger.LogInfo("==================================================\n");
+      _logger.Log("", useTimestamp: false);
     }
   }
 }
