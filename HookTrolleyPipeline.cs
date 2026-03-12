@@ -160,7 +160,19 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       // ====================================================================
       LiftingWireGenerator.Run(liftingGroups, this.SpcData, _logger, _pipelineDebug);
 
-      _logger.LogSuccess("\n▶ 현재까지 작성된 파이프라인이 성공적으로 완료되었습니다.");
+
+      // ====================================================================
+      // [Stage 10] BDF 파일 최종 출력 (_r.bdf 생성)
+      // ====================================================================
+      if (_pipelineDebug) _logger.LogInfo("\n[Stage 10] 청소 및 조립이 완료된 최종 해석용 BDF 파일(_r.bdf) 출력 시작...");
+
+      ModuleGroupUnitAnalysis.Exporter.BdfExporter.Export(_bdfPath, _context, this.SpcData);
+
+      _logger.LogSuccess($"10단계 : 최종 BDF 내보내기 완료 (파일명: {System.IO.Path.GetFileNameWithoutExtension(_bdfPath)}_r.bdf)");
+
+      _logger.LogInfo("\n==================================================");
+      _logger.LogSuccess("Hook & Trolley 모든 파이프라인 완벽 종료");
+      _logger.LogInfo("==================================================\n");
     }
   }
 }
