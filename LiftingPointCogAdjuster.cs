@@ -10,16 +10,30 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Modifiers
   {
     /// <summary>
     /// # HookTrolley-05
-    /// 권상 포인트 그룹이 2개일 때, 계산된 정점 중 하나를 무게중심(COG) 축에 맞춰 
-    /// 미세 조정(최대 300mm 이하)합니다.
+    /// 모델의 무게중심(COG)을 확인하고, 
+    /// 권상 포인트 그룹이 2개일 때 계산된 정점 중 하나를 COG 축에 맞춰 미세 조정합니다.
     /// </summary>
     public static void Run(List<LiftingGroup> liftingGroups, Point3D cog, PipelineLogger logger, bool debugPrint = true)
     {
-      // 그룹이 2개일 때만 수행하는 로직
-      if (liftingGroups.Count != 2) return;
+      if (debugPrint) logger.LogInfo("\n[Stage 5] 권상 위치 COG(무게중심) 기준 평가 및 미세 보정 시작");
 
-      if (debugPrint) logger.LogInfo("\n[Stage 5] 권상 위치 COG(무게중심) 기준 미세 보정 (Hook to COG) 시작");
+      // ★ [추가된 부분] 권상 포인트 개수와 무관하게 항상 COG 위치를 출력하여 안심시킵니다.
+      if (debugPrint) logger.LogInfo($"  -> 현재 모델의 무게중심(COG) 위치: X={cog.X:F1}, Y={cog.Y:F1}, Z={cog.Z:F1}");
 
+      // 그룹이 2개가 아니면 억지로 보정(Shift)할 필요가 없으므로 알림만 띄우고 넘깁니다.
+      if (liftingGroups.Count != 2)
+      {
+        if (debugPrint)
+        {
+          logger.LogInfo($"  -> 권상 포인트 그룹이 {liftingGroups.Count}개이므로 좌표 임의 보정(Hook to COG)은 생략합니다.");
+          logger.LogSuccess("5단계 : 무게중심(COG) 위치 확인 완료");
+        }
+        return;
+      }
+
+      // -------------------------------------------------------------
+      // 아래부터는 2점 권상(2 Groups)일 경우에만 작동하는 미세 보정 로직
+      // -------------------------------------------------------------
       var p1 = liftingGroups[0].CalculatedTopPoint;
       var p2 = liftingGroups[1].CalculatedTopPoint;
 
@@ -31,17 +45,15 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Modifiers
 
       if (xDiff > yDiff)
       {
-        // 두 점이 X축 방향으로 길게 배치된 경우 -> Y축을 보정
-        r[0] = GetYOnLine(p2, cog, p1.X); // p1을 p2-COG 연장선으로 보냈을 때의 Y값
-        r[1] = GetYOnLine(p1, cog, p2.X); // p2를 p1-COG 연장선으로 보냈을 때의 Y값
+        r[0] = GetYOnLine(p2, cog, p1.X);
+        r[1] = GetYOnLine(p1, cog, p2.X);
         absMag[0] = Math.Abs(r[0] - p1.Y);
         absMag[1] = Math.Abs(r[1] - p2.Y);
       }
       else
       {
-        // 두 점이 Y축 방향으로 길게 배치된 경우 -> X축을 보정
-        r[0] = GetXOnLine(p2, cog, p1.Y); // p1을 p2-COG 연장선으로 보냈을 때의 X값
-        r[1] = GetXOnLine(p1, cog, p2.Y); // p2를 p1-COG 연장선으로 보냈을 때의 X값
+        r[0] = GetXOnLine(p2, cog, p1.Y);
+        r[1] = GetXOnLine(p1, cog, p2.Y);
         absMag[0] = Math.Abs(r[0] - p1.X);
         absMag[1] = Math.Abs(r[1] - p2.X);
       }
@@ -49,7 +61,6 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Modifiers
       // [파이썬 원본 제약조건] 두 보정량 모두 300mm 이하일 때만 수행
       if (absMag[0] <= 300.0 && absMag[1] <= 300.0)
       {
-        // 더 적게 움직이는 점을 선택하여 보정
         if (absMag[0] < absMag[1])
         {
           if (xDiff > yDiff)
@@ -87,6 +98,8 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Modifiers
       {
         if (debugPrint) logger.LogInfo("  -> 보정 이동량(Deviation)이 300mm를 초과하여 임의 수정을 생략합니다.");
       }
+
+      if (debugPrint) logger.LogSuccess("5단계 : 무게중심(COG) 위치 확인 및 미세 보정 완료");
     }
 
     // 점 A와 점 B를 지나는 직선에서 특정 X값에 대한 Y값 찾기
