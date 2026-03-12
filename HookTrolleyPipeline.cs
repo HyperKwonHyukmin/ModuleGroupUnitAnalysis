@@ -11,6 +11,13 @@ using System.Collections.Generic;
 
 namespace ModuleGroupUnitAnalysis.Pipeline
 {
+  // 추출된 SPC 정보를 담을 작은 클래스
+  public class SpcAssignData
+  {
+    public List<int> PipeSpcNodes { get; set; } = new List<int>();
+    public List<int> CogSpcNodes { get; set; } = new List<int>();
+  }
+
   /// <summary>
   /// Hook & Trolley 권상 해석을 위한 전체 파이프라인 프로세스를 관장합니다.
   /// </summary>
@@ -23,6 +30,8 @@ namespace ModuleGroupUnitAnalysis.Pipeline
     private readonly bool _forceRigidDof123456;
     private readonly bool _pipelineDebug;
     private readonly bool _verboseDebug;
+
+    public SpcAssignData SpcData { get; private set; } = new SpcAssignData();
 
     public HookTrolleyPipeline(string bdfPath, PipelineLogger logger, bool runSanityNastranCheck, 
       bool forceRigidDof123456, bool pipelineDebug, bool verboseDebug)
@@ -119,6 +128,21 @@ namespace ModuleGroupUnitAnalysis.Pipeline
         _logger.LogError("\n[Pipeline Aborted] 무게중심이 권상 영역을 벗어나 전도(Overturn) 위험이 있어 해석을 중단합니다.");
         return;
       }
+
+      // ====================================================================
+      // [Stage 7] 트롤리 권상 간격 분할 (Trolley Splitter)
+      // ====================================================================
+      LiftingPointTrolleySplitter.Run(liftingGroups, _logger, _pipelineDebug);
+
+      // ====================================================================
+      // [Stage 8] 해석 안정화용 경계조건(SPC) 노드 추출
+      // ====================================================================
+      var (pipeSpcs, cogSpcs) = LiftingBoundaryConditionSetter.Run(_context, cog, _logger, _pipelineDebug);
+
+      // 추출된 정보를 파이프라인 변수에 저장 (다음 Exporter 단계에서 꺼내 씀)
+      this.SpcData.PipeSpcNodes = pipeSpcs;
+      this.SpcData.CogSpcNodes = cogSpcs;
+
       _logger.LogSuccess("\n▶ 현재까지 작성된 파이프라인이 성공적으로 완료되었습니다.");
     }
   }
