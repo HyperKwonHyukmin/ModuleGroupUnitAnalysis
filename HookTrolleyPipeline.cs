@@ -6,6 +6,7 @@ using ModuleGroupUnitAnalysis.Pipeline.Preprocess;
 using ModuleGroupUnitAnalysis.Services.Parsers;
 using ModuleGroupUnitAnalysis.Services.Utils;
 using ModuleGroupUnitAnalysis.Utils;
+using ModuleGroupUnitAnalysis.Exporter;
 using System;
 using System.Collections.Generic;
 
@@ -70,7 +71,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       FeModelDebugger.PrintSummary(_context, _logger, _pipelineDebug, _verboseDebug);
 
       // ====================================================================
-      // [Phase 1] BDF 모델 건전성 검사 및 힐 (Sanity Check)
+      // [Phase 1] BDF 모델 건전성 검사 및 힐링 (Sanity Check)
       // ====================================================================
       bool isModelSane = StructuralSanityInspector.Run(_context, _logger, _pipelineDebug, _verboseDebug);
       if (!isModelSane)
@@ -112,7 +113,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       bool isShapeValid = LiftingPointVerifier.Run(liftingGroups, _logger, _pipelineDebug);
       if (!isShapeValid)
       {
-        _logger.LogError("\n[Pipeline Aborted] 권상 포인트 기하학 형태 량으로 파이프라인을 중단합니다.");
+        _logger.LogError("\n[Pipeline Aborted] 권상 포인트 기하학 형태 불량으로 파이프라인을 중단합니다.");
         return;
       }
 
@@ -158,7 +159,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       // ====================================================================
       // [Stage 9] 권상 정점 및 와이어(CROD) 가상 텍스트 생성
       // ====================================================================
-      LiftingWireGenerator.Run(liftingGroups, this.SpcData, _logger, _pipelineDebug);
+      LiftingWireGenerator.Run(liftingGroups, _context, this.SpcData, _logger, _pipelineDebug);
 
 
       // ====================================================================
@@ -166,7 +167,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       // ====================================================================
       if (_pipelineDebug) _logger.LogInfo("\n[Stage 10] 청소 및 조립이 완료된 최종 해석용 BDF 파일(_r.bdf) 출력 시작...");
 
-      ModuleGroupUnitAnalysis.Exporter.BdfExporter.Export(_bdfPath, _context, this.SpcData);
+      BdfExporter.Export(_bdfPath, _context, this.SpcData);
 
       _logger.LogSuccess($"10단계 : 최종 BDF 내보내기 완료 (파일명: {System.IO.Path.GetFileNameWithoutExtension(_bdfPath)}_r.bdf)");
 
