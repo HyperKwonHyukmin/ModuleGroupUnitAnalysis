@@ -1,16 +1,17 @@
+using ModuleGroupUnitAnalysis.Exporter;
 using ModuleGroupUnitAnalysis.Logger;
 using ModuleGroupUnitAnalysis.Model.Entities;
 using ModuleGroupUnitAnalysis.Model.Geometry;
 using ModuleGroupUnitAnalysis.Pipeline.Modifiers;
+using ModuleGroupUnitAnalysis.Pipeline.Postprocess;
 using ModuleGroupUnitAnalysis.Pipeline.Preprocess;
 using ModuleGroupUnitAnalysis.Services.Parsers;
 using ModuleGroupUnitAnalysis.Services.Utils;
 using ModuleGroupUnitAnalysis.Utils;
-using ModuleGroupUnitAnalysis.Pipeline.Postprocess;
-using ModuleGroupUnitAnalysis.Exporter;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using static ModuleGroupUnitAnalysis.MainApp;
 
 namespace ModuleGroupUnitAnalysis.Pipeline
 {
@@ -23,13 +24,14 @@ namespace ModuleGroupUnitAnalysis.Pipeline
   }
 
   /// <summary>
-  /// Hook & Trolley 권상 해석을 위한 전체 파이프라인 프로세스 관장합니다.
+  /// Hook & Trolley 권상 해석 위한 전체 파이프라인 프로세스를 관장합니다.
   /// </summary>
   public class HookTrolleyPipeline
   {
     private readonly string _bdfPath;
     private readonly FeModelContext _context;
     private readonly PipelineLogger _logger;
+    private readonly AnalysisType _analysisType;
 
     private readonly bool _runSanityNastranCheck;
     private readonly bool _forceRigidDof123456;
@@ -40,12 +42,13 @@ namespace ModuleGroupUnitAnalysis.Pipeline
 
     public SpcAssignData SpcData { get; private set; } = new SpcAssignData();
 
-    public HookTrolleyPipeline(string bdfPath, PipelineLogger logger, bool runSanityNastranCheck,
-        bool forceRigidDof123456, bool runNastranAnalysis, bool checkAnalysisResult, bool pipelineDebug, bool verboseDebug)
+    public HookTrolleyPipeline(string bdfPath, PipelineLogger logger, AnalysisType analysisType, bool runSanityNastranCheck,
+            bool forceRigidDof123456, bool runNastranAnalysis, bool checkAnalysisResult, bool pipelineDebug, bool verboseDebug)
     {
       _bdfPath = bdfPath;
       _context = FeModelContext.CreateEmpty();
       _logger = logger;
+      _analysisType = analysisType;
       _runSanityNastranCheck = runSanityNastranCheck;
       _forceRigidDof123456 = forceRigidDof123456;
       _runNastranAnalysis = runNastranAnalysis;
@@ -69,7 +72,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       // ====================================================================
       if (_forceRigidDof123456)
       {
-        _logger.LogWarning("\n[옵션 적용] 모델 내 모든 RBE2 강체의 DOF를 '123456'로 강제 고정합니다.");
+        _logger.LogWarning("\n[옵션 적용] 모델 내 모든 RBE2 강체의 DOF를 '123456'으로 강제 고정합니다.");
         _context.Rigids.ForceAllDofs("123456");
       }
 
@@ -111,7 +114,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       List<LiftingGroup> liftingGroups = LiftingInformationParser.Parse(_bdfPath, _context, _logger);
       if (liftingGroups.Count == 0) return;
 
-      // [Stage 1, 2, 3] 권상 포인트 기하학적 형태 검
+      // [Stage 1, 2, 3] 권상 포인트 기하학적 형태 검증
       LiftingPointArranger.Run(liftingGroups, _logger, _pipelineDebug);
       LiftingPointShapeDetecter.Run(liftingGroups, _logger, _pipelineDebug);
 
@@ -137,14 +140,23 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       // ====================================================================
       LiftingPointCogAdjuster.Run(liftingGroups, cog, _logger, _pipelineDebug);
 
+
       // ====================================================================
-      // [Stage 6] 자세 안정성 평가 (Overturn Check)
+      // [Stage 6] 자세 안정성 평가 (Module Unit 전용)
       // ====================================================================
-      bool isStable = LiftingOverturnInspector.Run(liftingGroups, cog, _logger, _pipelineDebug);
-      if (!isStable)
+
+      if (_analysisType == AnalysisType.ModuleUnit)
       {
-        _logger.LogError("\n[Pipeline Aborted] 무게중심이 권상 영역을 벗어나 전도(Overturn) 위험이 있어 해석을 중단합니다.");
-        return;
+        bool isStable = LiftingOverturnInspector.Run(liftingGroups, cog, _logger, _pipelineDebug);
+        if (!isStable)
+        {
+          _logger.LogError("\n[Pipeline Aborted] 무게중심이 권상 영역을 벗어나 전도(Overturn) 위험이 있어 해석을 중단합다.");
+          return;
+        }
+      }
+      else
+      {
+        if (_pipelineDebug) _logger.LogInfo("\n[Stage 6] 자세 안정성 평가 생략 (Group Unit 모드)");
       }
 
       // ====================================================================
@@ -193,9 +205,9 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       string clashStatus = isInterferenceFree ? "Clear (관통 없음)" : "WARNING (구조물 간섭 존재!)";
 
       _logger.Log("", useTimestamp: false);
-      _logger.Log("┌─────────────────────────────────────────────────────────────────┐", useTimestamp: false);
+      _logger.Log("┌────────────────────────────────────────────────────────────────┐", useTimestamp: false);
       _logger.Log("│                 [ Module Unit Lifting Summary ]                 │", ConsoleColor.Cyan, useTimestamp: false);
-      _logger.Log("├───────────────────────────┬────────────────────────────────────┤", useTimestamp: false);
+      _logger.Log("├───────────────────────────┬─────────────────────────────────────┤", useTimestamp: false);
 
       _logger.LogSummaryTable("Target Model", Path.GetFileName(_bdfPath));
       _logger.LogSummaryTable("Total Mass", $"{totalMass:F2} ton");
@@ -209,7 +221,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       _logger.LogSummaryTable("Safety: Wire Clash", clashStatus);
       _logger.Log("├───────────────────────────┼─────────────────────────────────────┤", useTimestamp: false);
       _logger.LogSummaryTable("Generated Output File", outputFileName);
-      _logger.Log("└───────────────────────────┴─────────────────────────────────────┘", useTimestamp: false);
+      _logger.Log("└───────────────────────────┴────────────────────────────────────┘", useTimestamp: false);
 
       if (isAngleSafe && isInterferenceFree)
         _logger.LogSuccess("BDF 출력 및 모델 전처리 파이프라인이 성공적으로 완료되었습니다.");
@@ -259,7 +271,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
 
             // 2. 콘솔에 결과 대시보드 출력 (이 부분을 원하셨습니다!)
             _logger.Log("", useTimestamp: false);
-            _logger.Log("┌───────────────────────────────────────────────────────┐", useTimestamp: false);
+            _logger.Log("┌────────────────────────────────────────────────────────┐", useTimestamp: false);
             _logger.Log("│                 [ F06 Analysis Result ]                │", ConsoleColor.Green, useTimestamp: false);
             _logger.Log("├────────────────────────────────────────────────────────┤", useTimestamp: false);
             _logger.Log($"│ Max Displacement : {dispVal,6:F2} mm (Node {maxDisp?.NodeID})", ConsoleColor.White, useTimestamp: false);
@@ -290,8 +302,8 @@ namespace ModuleGroupUnitAnalysis.Pipeline
             }
 
             // 3. 텍스트 파일로도 내보내기
-            ResultExporter.ExportTxtReport(f06Path, results);
-            _logger.LogSuccess($"▶ 요약 리포트 저장 완료: {Path.GetFileName(Path.ChangeExtension(f06Path, ".txt"))}");
+            ResultExporter.Export(exportPath, results, _analysisType, _logger);
+          _logger.LogSuccess($"▶ 요약 리포트 저장 완료: {Path.GetFileName(Path.ChangeExtension(f06Path, ".txt"))}");
           }
           else
           {
@@ -300,7 +312,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
         }
         else
         {
-          _logger.LogError($"해석 결과 파일(.f06)을 찾을 수 없니다: {f06Path}");
+          _logger.LogError($"해석 결과 파일(.f06)을 찾을 수 없습니다: {f06Path}");
         }
       }
 
