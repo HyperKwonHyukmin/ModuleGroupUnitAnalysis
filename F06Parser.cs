@@ -17,7 +17,6 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
       {
         var lines = File.ReadAllLines(f06FilePath);
         ParseState state = ParseState.None;
-
         int currentElemId = 0;
 
         foreach (string rawLine in lines)
@@ -34,30 +33,29 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
           if (trimmed.Length == 0) continue;
 
           // ==========================================================
-          // ★ 1. 상태 전환 트리거 (Nastran 헤더 완벽 인식)
+          // 1. 상태 전환 트리거 (Nastran 고유 헤더만 정확히 매칭)
           // ==========================================================
           if (trimmed.Contains("D I S P L A C E M E N T   V E C T O R")) { state = ParseState.Displacement; continue; }
           else if (trimmed.Contains("S T R E S S E S   I N   B E A M   E L E M E N T S")) { state = ParseState.BeamStress; continue; }
           else if (trimmed.Contains("F O R C E S   I N   R O D   E L E M E N T S")) { state = ParseState.RodForce; continue; }
 
-          // ★ [수정됨] SPC Forces, Applied Loads 등 다른 블록이 나오면 무조건 파싱을 중단(None)합니다!
+          // ★ 반력 등 명확히 다른 데이터 테이블이 나올 때만 파싱을 초기화합니다.
           else if (trimmed.Contains("F O R C E S   O F   S I N G L E - P O I N T") ||
-                   trimmed.Contains("A P P L I E D   L O A D S") ||
-                   trimmed.Contains("L O A D   V E C T O R") ||
-                   trimmed.Contains("O U T P U T   F R O M") ||
-                   trimmed.Contains("E L E M E N T   S T R A I N   E N E R G I E S"))
+                   trimmed.Contains("S P C   F O R C E S") ||
+                   trimmed.Contains("A P P L I E D   L O A D S"))
           {
             state = ParseState.None;
             continue;
           }
 
-          // 데이터가 아닌 텍스트 라인은 건너뜀
+          // 데이터 라인이 아니면 스킵 (반드시 숫자나 '-'로 시작)
           if (!char.IsDigit(trimmed[0]) && trimmed[0] != '-') continue;
 
           var parts = trimmed.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+          if (parts.Length == 0) continue;
 
           // ==========================================================
-          // 2. 변위 파싱
+          // 2. 파싱 로직
           // ==========================================================
           if (state == ParseState.Displacement)
           {
@@ -72,11 +70,15 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
               });
             }
           }
-          // ==========================================================
-          // 3. 빔 응력(CBEAM) 파싱
-          // ==========================================================
           else if (state == ParseState.BeamStress)
           {
+            // Element ID 단독 라인 처리
+            if (parts.Length == 1 && int.TryParse(parts[0], out int onlyId))
+            {
+              currentElemId = onlyId;
+              continue;
+            }
+
             int leadingSpaces = 0;
             foreach (char c in line) { if (c == ' ') leadingSpaces++; else break; }
 
@@ -95,39 +97,29 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
             if (tokenIdx + 5 < parts.Length)
             {
               if (!parts[tokenIdx].Contains(".") && int.TryParse(parts[tokenIdx], out _))
-              {
-                tokenIdx++;
-              }
+                tokenIdx++; // Grid 스킵
 
-              tokenIdx++;
+              tokenIdx++; // Station 스킵
 
               if (tokenIdx + 5 < parts.Length && currentElemId > 0)
               {
-                double smax = ParseNastranDouble(parts[tokenIdx + 4]);
-                double smin = ParseNastranDouble(parts[tokenIdx + 5]);
-
                 result.BeamStresses.Add(new BeamStressData
                 {
                   ElementID = currentElemId,
-                  MaxStress = smax,
-                  MinStress = smin
+                  MaxStress = ParseNastranDouble(parts[tokenIdx + 4]),
+                  MinStress = ParseNastranDouble(parts[tokenIdx + 5])
                 });
               }
             }
           }
-          // ==========================================================
-          // 4. 와이어 장력(CROD) 파싱
-          // ==========================================================
           else if (state == ParseState.RodForce)
           {
-            if (parts.Length >= 2 && int.TryParse(parts[0], out int eid))
-            {
-              result.RodForces.Add(new RodForceData
-              {
-                ElementID = eid,
-                AxialForce = ParseNastranDouble(parts[1])
-              });
-            }
+            // Nastran CROD는 한 줄에 데이터가 2열로 나올 수 있음!
+            if (parts.Length >= 2 && int.TryParse(parts[0], out int eid1))
+              result.RodForces.Add(new RodForceData { ElementID = eid1, AxialForce = ParseNastranDouble(parts[1]) });
+
+            if (parts.Length >= 5 && int.TryParse(parts[3], out int eid2))
+              result.RodForces.Add(new RodForceData { ElementID = eid2, AxialForce = ParseNastranDouble(parts[4]) });
           }
         }
         result.IsParsedSuccessfully = true;
