@@ -9,7 +9,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
 {
   public static class ResultExporter
   {
-    public static void Export(string bdfPath, F06ResultData results, PipelineLogger logger)
+    public static void Export(string bdfPath, F06ResultData results, AnalysisType type, PipelineLogger logger)
     {
       logger.LogInfo("\n[Stage 13] 최종 구조 안정성 평가 및 리포트 생성 시작...");
 
@@ -45,7 +45,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
         // 60,760 N (약 6.2 ton) 기준 평가 텍스트
         string assessment = axialForce < 60760.0 ? "국부 변형 방지 지그 불필요" : "국부 변형 방지 지그 필요";
 
-        // 형식 맞추기: 1-1       310       0.11ton / 1048.09         국부 변형 방지 지그 불필요
+        // 형식 추기: 1-1       310       0.11ton / 1048.09         국부 변형 방지 지그 불필요
         string idxStr = $"1-{wireIdx}".PadRight(10);
         string eidStr = rod.ElementID.ToString().PadRight(10);
         string forceStr = $"{tonForce:F2}ton / {axialForce:F2}".PadRight(25);
@@ -59,17 +59,33 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
       string overallStatus = structureStatus;
 
       // ====================================================================
-      // 6. 리포트 텍스트 작성 (안전율 소수점 둘째 자리 반영)
+      // 6. 리포트 텍스트 작성 (타입별 분기 처리)
       // ====================================================================
       sb.AppendLine($"*** 결과 : {overallStatus} ***\n");
       sb.AppendLine("1. Unit Point 형태 유효성 확인 : OK\n");
-      sb.AppendLine($"2. 구조 안정성 평가 : {structureStatus}");
-      sb.AppendLine($"   1) 최대 변형 : {maxDisp:F1}mm");
-      sb.AppendLine($"   2) 응력 평가 (항복응력 : 275MPa 허용응력 : 항복응력 x 0.8 = 220MPa)");
-      sb.AppendLine($"     ElementID:        {maxStressId}");
-      sb.AppendLine($"     Stress:           {maxStress:F1}MPa");
-      sb.AppendLine($"     SafetyFactor:     {safetyFactor:F2}\n"); // ★ F2 적용
-      sb.AppendLine("3. 장력 평가 (안전하중 : 6.2 ton / 60,760 N)");
+
+      // ★ 타입별 텍스트 분기 처리
+      if (type == AnalysisType.ModuleUnit)
+      {
+        sb.AppendLine("2. 자세 안정성 평가 : OK\n");
+        sb.AppendLine($"3. 구조 안정성 평가 : {structureStatus}");
+        sb.AppendLine($"   1) 최대 변형 : {maxDisp:F1}mm");
+        sb.AppendLine($"   2) 응력 평가 (항복응력 : 275MPa 허용응력 : 항복응력 x 0.8 = 220MPa)");
+        sb.AppendLine($"     ElementID:        {maxStressId}");
+        sb.AppendLine($"     Stress:           {maxStress:F1}MPa");
+        sb.AppendLine($"     SafetyFactor:     {safetyFactor:F2}\n");
+        sb.AppendLine("4. 장력 평가 (안전하중 : 6.2 ton / 60,760 N)");
+      }
+      else // Group Unit
+      {
+        sb.AppendLine($"2. 구조 안정성 평가 : {structureStatus}");
+        sb.AppendLine($"   1) 최대 변형 : {maxDisp:F1}mm");
+        sb.AppendLine($"   2) 응력 평가 (항복응력 : 275MPa 허용응력 : 항복응력 x 0.8 = 220MPa)");
+        sb.AppendLine($"     ElementID:        {maxStressId}");
+        sb.AppendLine($"     Stress:           {maxStress:F1}MPa");
+        sb.AppendLine($"     SafetyFactor:     {safetyFactor:F2}\n");
+        sb.AppendLine("3. 장력 평가 (안전하중 : 6.2 ton / 60,760 N)");
+      }
 
       foreach (var wl in wireLines)
       {
