@@ -214,7 +214,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
         _logger.LogWarning("BDF 파일은 생성되었으나, 일부 기하학적 안전 경고(각도/간섭)가 존재합니다.");
 
       // ====================================================================
-      // ★ [신규 추가] [Stage 11] Nastran 본 해석 실행 (옵션)
+      // [Stage 11] Nastran 본 해석 행 (옵션)
       // ====================================================================
       if (_runNastranAnalysis)
       {
@@ -223,10 +223,28 @@ namespace ModuleGroupUnitAnalysis.Pipeline
 
         if (isSolved)
         {
-          _logger.LogSuccess("▶ F06 / OP2 파일이 준비되었습니다. 다음 후처리(Post-Processing) 단계로 넘어갈 수 있습니다.");
+          _logger.LogSuccess("▶ F06 / OP2 파일이 준비되었습니다. 다음 후처리(Post-Processing) 단계로 넘어갑니다.");
+
+          // ====================================================================
+          // [Stage 12] F06 파싱 & [Stage 13] 결과 리포트 생성
+          // ====================================================================
+          string f06Path = Path.ChangeExtension(exportPath, ".f06");
+
+          var results = F06Parser.Parse(f06Path, _logger, _pipelineDebug);
+
+          if (results.BeamStresses.Count > 0 || results.Displacements.Count > 0)
+          {
+            ResultExporter.Export(exportPath, results, _logger);
+          }
+          else
+          {
+            _logger.LogError("F06 파일은 존재하나 해석 데이터를 파싱하지 못했습니다. Nastran FATAL 에러를 확인하세요.");
+          }
         }
       }
 
+      _logger.Log("", useTimestamp: false);
+      _logger.LogSuccess("Hook & Trolley 전체 파이프라인 (전처리 -> 해석 -> 후처리) 100% 완료");
       _logger.Log("", useTimestamp: false);
     }
   }
