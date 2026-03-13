@@ -17,10 +17,10 @@ namespace ModuleGroupUnitAnalysis
       bool verboseDebug = false;
 
       // Sanity 체크용 Nastran을 실제로 구동할 것인가? (시간 절약을 위해 평소엔 false)
-      bool runSanityNastranCheck = true;
+      bool runSanityNastranCheck = false;
 
       // Ubolt DOF 강제 "123456" 설정
-      bool forceRigidDof123456 = false;
+      bool forceRigidDof123456 = true;
 
       // Nastran 해석 유무
       bool runNastranAnalysis = true;
@@ -29,7 +29,7 @@ namespace ModuleGroupUnitAnalysis
       var logger = new PipelineLogger(logExport);
       logger.InitializeFile(bdfFile);
 
-      // 3. 파이프라인 객체 생성 및 실행 (초깔끔!)
+      // 3. 파이프라인 객체 생성 및 실행 
       var pipeline = new HookTrolleyPipeline(bdfFile, logger, runSanityNastranCheck, 
         forceRigidDof123456, runNastranAnalysis, pipelineDebug, verboseDebug);
       pipeline.Run();
