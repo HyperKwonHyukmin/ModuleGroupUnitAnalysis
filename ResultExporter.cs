@@ -16,6 +16,38 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
       string resultTxtPath = Path.ChangeExtension(bdfPath, ".txt");
       var sb = new StringBuilder();
 
+      // ====================================================================
+      // ★ FATAL ERROR 발생 시 즉시 중단 및 에러 출력 로직
+      // ====================================================================
+      if (results.HasFatalError)
+      {
+        sb.AppendLine($"*** 결과 : Fail (FATAL ERROR) ***\n");
+        sb.AppendLine("[해석 실패] NASTRAN 해석 중 치명적 오류(FATAL)가 발생하여 석이 중단되었습니다.\n");
+
+        foreach (var msg in results.FatalMessages)
+        {
+          sb.AppendLine(msg);
+        }
+
+        File.WriteAllText(resultTxtPath, sb.ToString(), Encoding.UTF8);
+
+        logger.Log("", useTimestamp: false);
+        logger.Log("=========================================================", useTimestamp: false);
+        logger.Log("                 [ F06 Analysis Result ]                 ", ConsoleColor.Red, useTimestamp: false);
+        logger.Log("---------------------------------------------------------", useTimestamp: false);
+        logger.Log($" Overall Status   : [ FAIL (FATAL ERROR) ]", ConsoleColor.Red, useTimestamp: false);
+        logger.Log("---------------------------------------------------------", useTimestamp: false);
+
+        foreach (var msg in results.FatalMessages)
+        {
+          logger.Log(msg, ConsoleColor.Red, useTimestamp: false);
+        }
+
+        logger.Log("=========================================================", useTimestamp: false);
+        logger.LogWarning($"13단계 : FATAL 에러 리포트 출력 완료 ({Path.GetFileName(resultTxtPath)})");
+        return; // FATAL이면 정상 평가 로직(아래 코드)을 더 이상 진행하지 않음
+      }
+
       var maxDispNode = results.Displacements.OrderByDescending(d => d.Magnitude).FirstOrDefault();
       double maxDisp = maxDispNode != null ? Math.Round(maxDispNode.Magnitude, 1) : 0.0;
 
@@ -116,7 +148,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
 
       if (results.RodForces.Count == 0)
       {
-        logger.Log("  - 데이터 없음 (FATAL 에러 확인 요망)", ConsoleColor.Yellow, useTimestamp: false);
+        logger.Log("  - 데이터 없음", ConsoleColor.Yellow, useTimestamp: false);
       }
       else
       {
