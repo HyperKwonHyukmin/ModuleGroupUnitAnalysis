@@ -30,7 +30,8 @@ namespace ModuleGroupUnitAnalysis
       bool runSanityNastranCheck = false;
 
       // Group Unit일 때는 무조건 123456을 적용하도록 연동
-      bool forceRigidDof123456 = (analysisType == AnalysisType.GroupUnit);
+      //bool forceRigidDof123456 = (analysisType == AnalysisType.GroupUnit);
+      bool forceRigidDof123456 = true;
 
       bool runNastranAnalysis = true;
       bool checkAnalysisResult = true;
