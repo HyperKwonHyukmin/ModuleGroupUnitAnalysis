@@ -252,7 +252,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       }
 
       _logger.Log("", useTimestamp: false);
-      _logger.LogSuccess("🎉 Hook & Trolley 전체 파이프라인 100% 완료 🎉");
+      _logger.LogSuccess("Hook & Trolley 전체 파이프라인 100% 완료");
       _logger.Log("", useTimestamp: false);
     }
   }
