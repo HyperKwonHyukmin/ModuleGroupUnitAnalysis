@@ -6,6 +6,9 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Postprocess
   public class F06ResultData
   {
     public bool IsParsedSuccessfully { get; set; } = false;
+    // ★ FATAL 에러 탐지용 프로퍼티 추가
+    public bool HasFatalError { get; set; } = false;
+    public List<string> FatalMessages { get; set; } = new List<string>();
     public List<DisplacementData> Displacements { get; set; } = new List<DisplacementData>();
     public List<BeamStressData> BeamStresses { get; set; } = new List<BeamStressData>();
     public List<RodForceData> RodForces { get; set; } = new List<RodForceData>();
