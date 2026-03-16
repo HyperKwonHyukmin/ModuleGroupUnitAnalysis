@@ -87,7 +87,9 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       // [Phase 2] 초기 모델 유효성 평가
       if (_runSanityNastranCheck)
       {
-        bool isNastranPass = SanityNastranRunner.Run(_bdfPath, _context, _forceRigidDof123456, _logger, _pipelineDebug);
+        // ★ 수정됨: 3번째 인자에 _forceRigidDof123456 변수 대신 명시적으로 'true'를 강제 주입합니다.
+        bool isNastranPass = SanityNastranRunner.Run(_bdfPath, _context, true, _logger, _pipelineDebug);
+
         if (!isNastranPass)
         {
           _logger.LogError("\n[Pipeline Aborted] 초기 모델 Nastran 해석 중 FATAL이 발생하여 파이프라인을 종료합니다.");
@@ -138,7 +140,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
         if (_pipelineDebug) _logger.LogInfo("\n[Stage 6] 자세 안정성 평가 생략 (Group Unit 모드)");
       }
 
-      // [Stage 7, 8, 9] 권상 간격 분할, SPC 할당, 와이어 생성
+      // [Stage 7, 8, 9] 권상 간격 분할, SPC 할당, 이어 생성
       LiftingPointTrolleySplitter.Run(liftingGroups, _logger, _pipelineDebug);
 
       var (pipeSpcs, cogSpcs) = LiftingBoundaryConditionSetter.Run(_context, cog, _logger, _pipelineDebug);
@@ -168,7 +170,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       _logger.Log("", useTimestamp: false);
       _logger.Log("┌─────────────────────────────────────────────────────────────────┐", useTimestamp: false);
       _logger.Log($"│                 [ {_analysisType} Lifting Summary ]                 │", ConsoleColor.Cyan, useTimestamp: false);
-      _logger.Log("├───────────────────────────┬─────────────────────────────────────┤", useTimestamp: false);
+      _logger.Log("├───────────────────────────┬────────────────────────────────────┤", useTimestamp: false);
       _logger.LogSummaryTable("Target Model", Path.GetFileName(_bdfPath));
       _logger.LogSummaryTable("Total Mass", $"{totalMass:F2} ton");
       _logger.LogSummaryTable("Center of Gravity (COG)", $"X:{cog.X:F1}  Y:{cog.Y:F1}  Z:{cog.Z:F1}");
@@ -186,7 +188,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
       if (isAngleSafe && isInterferenceFree)
         _logger.LogSuccess("BDF 출력 및 모델 전처리 파이프라인이 성공적으로 완료되었습니다.");
       else
-        _logger.LogWarning("BDF 파일은 생성되었으나, 일부 기하학적 안전 경고(각도/간섭)가 존재합니다.");
+        _logger.LogWarning("BDF 파일은 생성되었으나, 일부 기하학 안전 경고(각도/간섭)가 존재합니다.");
 
       // [Stage 11] Nastran 본 해석 실행
       if (_runNastranAnalysis)
@@ -210,7 +212,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
 
         string f06Path = Path.ChangeExtension(exportPath, ".f06"); // 기본: 해석용 _r.f06
 
-        // Nastran을 안 돌렸을 경우, 파싱 기존 .f06 파일을 지능적으로 탐색
+        // Nastran을 안 돌렸을 경우, 파싱할 기존 .f06 파일을 지능적으로 탐색
         if (!_runNastranAnalysis)
         {
           if (!File.Exists(f06Path))
@@ -235,7 +237,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline
 
           if (results.IsParsedSuccessfully)
           {
-            // 최종 리포트 파일 출력 및 대시보드 력
+            // 최종 리포트 파일 출력 및 대시보드 출력
             ResultExporter.Export(exportPath, results, _analysisType, _logger);
           }
           else
