@@ -9,9 +9,6 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Preprocess
 {
   public static class SanityNastranRunner
   {
-    /// <summary>
-    /// 임시 BDF를 생성하고 Nastran을 구동하여 .f06 파일의 FATAL 에러 유무를 검사합니다.
-    /// </summary>
     public static bool Run(string originalBdfPath, FeModelContext context, bool forceRigidDof123456, PipelineLogger logger, bool debugPrint)
     {
       if (debugPrint) logger.LogInfo("\n[Sanity Run] 초기 모델 유효성 검증용 Nastran 강제 구동 시작...");
@@ -21,14 +18,13 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Preprocess
       string sanityBdfPath = Path.Combine(dir, fileName + "_sanity.bdf");
       string sanityF06Path = Path.Combine(dir, fileName + "_sanity.f06");
 
-      // 1. 메모리의 체 DOF 변경 (옵션 켜진 경우)
+      // ★ [버그 수정] 메모리의 원본 강체(context.Rigids) DOF를 덮어쓰는 코드를 삭제했습니다.
+      // (대신 ExportSanityBdf 함수 내부에서 임시 텍스트 파일 생성 시에만 123456으로 덮어씁니다.)
       if (forceRigidDof123456)
       {
-        logger.LogWarning("  -> [옵션 적용] RBE2 강체의 DOF를 '123456'으로 강제 고정합니다. (FATAL 방지)");
-        context.Rigids.ForceAllDofs("123456");
+        logger.LogWarning("  -> [옵션 적용] Sanity 검증용 BDF 생성 시 임시로 RBE2 강체의 DOF를 '123456'으로 강제 고정합니다. (원본 유지)");
       }
 
-      // ★ 2. 모델이 날아가지 않도록 더미 SPC를 부여할 기준 노드 1개 추출
       int dummySpcNodeId = context.Nodes.Keys.FirstOrDefault();
       if (dummySpcNodeId == 0)
       {
@@ -36,20 +32,17 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Preprocess
         return false;
       }
 
-      // 3. Sanity 전용 BDF 생성 (더미 하중/경계조건 주입)
       ExportSanityBdf(originalBdfPath, sanityBdfPath, context, forceRigidDof123456, dummySpcNodeId);
 
-      // 4. Nastran 백그라운드 실행
       if (debugPrint) logger.LogInfo($"  -> Nastran 솔버 실행 중... (파일: {Path.GetFileName(sanityBdfPath)})");
       bool solveSuccess = ExecuteNastran(sanityBdfPath, dir);
 
       if (!solveSuccess)
       {
-        logger.LogError("  -> Nastran 프로세스 실행 실패! 시스템 환경변수(PATH)에 'nastran'이 설정되어 있는지 확인하세요.");
+        logger.LogError("  -> Nastran 프로세스 실행 실패! 시스템 환경변수(PATH)에 'nastran'이 설정되어 있는지 확인세요.");
         return false;
       }
 
-      // 5. F06 파일 FATAL 검사
       if (!File.Exists(sanityF06Path))
       {
         logger.LogError("  -> 해석은 종료되었으나 .f06 파일이 생성되지 않았습니다.");
@@ -94,12 +87,8 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Preprocess
           continue;
         }
 
-        // ====================================================================
-        // ★ 핵심: Case Control에서 기존 SPC, LOAD를 무시하고 더미 ID(999999)로 교체
-        // ====================================================================
         if (!isBulk)
         {
-          // 기존 SPC, LOAD 선언은 건너뜀
           if ((upperTrimmed.StartsWith("SPC") && upperTrimmed.Contains("=")) ||
               (upperTrimmed.StartsWith("LOAD") && upperTrimmed.Contains("=")))
           {
@@ -108,21 +97,19 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Preprocess
 
           if (upperTrimmed.StartsWith("BEGIN BULK"))
           {
-            // BEGIN BULK 직전에 글로벌로 더미 Case Control 강제 주입
             writer.WriteLine("  SPC = 999999");
             writer.WriteLine("  LOAD = 999999");
-            writer.WriteLine(line); // BEGIN BULK 작성
+            writer.WriteLine(line);
             isBulk = true;
 
-            // Bulk Data 최상단에 더미 구속/하중 및 에러 우회 파라미터 삽입
-            writer.WriteLine("PARAM,AUTOSPC,YES"); // 강체 회전 방지 보조
-            writer.WriteLine("PARAM,BAILOUT,-1");  // 사소한 에러는 강제 진행
-            writer.WriteLine($"SPC1, 999999, 123456, {dummySpcNodeId}"); // 노드 1개를 완벽히 허공에 고정
-            writer.WriteLine("GRAV, 999999, , 9800.0, 0.0, 0.0, -1.0"); // 해석 구동을 위한 더미 하중
+            writer.WriteLine("PARAM,AUTOSPC,YES");
+            writer.WriteLine("PARAM,BAILOUT,-1");
+            writer.WriteLine($"SPC1, 999999, 123456, {dummySpcNodeId}");
+            writer.WriteLine("GRAV, 999999, , 9800.0, 0.0, 0.0, -1.0");
             continue;
           }
         }
-        else // Bulk Data 영역
+        else
         {
           string head = upperTrimmed;
           if (head.Contains(",")) head = head.Split(',')[0].Trim();
@@ -137,28 +124,27 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Preprocess
               else id = int.Parse(line.Substring(8, 8).Trim());
             }
 
-            // 가비지 데이터 제외
             if (head == "GRID" && !context.Nodes.Contains(id)) continue;
             if (head == "CBEAM" && !context.Elements.Contains(id)) continue;
             if (head == "CONM2" && !context.PointMasses.Contains(id)) continue;
 
-            // U-Bolt RBE2 DOF 덮어쓰기 로직
             if (head == "RBE2")
             {
               if (!context.Rigids.Contains(id)) continue;
 
+              // ★ 여기서 Sanity 파일에 쓸 때만 임시로 123456 텍스트를 주입합니다. (메모리 원본 유지)
               if (forceRigidDof)
               {
-                if (line.Contains(",")) // CSV 포맷
+                if (line.Contains(","))
                 {
                   var parts = line.Split(',');
                   if (parts.Length >= 4) parts[3] = "123456";
                   writer.WriteLine(string.Join(",", parts));
                 }
-                else // 고정 폭 포맷
+                else
                 {
                   string part1 = line.Length >= 24 ? line.Substring(0, 24) : line.PadRight(24);
-                  string part2 = "  123456"; // 4번째 필드 (자유도)
+                  string part2 = "  123456";
                   string part3 = line.Length > 32 ? line.Substring(32) : "";
                   writer.WriteLine(part1 + part2 + part3);
                 }
@@ -166,7 +152,7 @@ namespace ModuleGroupUnitAnalysis.Pipeline.Preprocess
               }
             }
           }
-          catch { /* 예외 시 원본 줄 유지 */ }
+          catch { }
         }
 
         writer.WriteLine(line);
