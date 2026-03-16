@@ -196,28 +196,51 @@ namespace ModuleGroupUnitAnalysis.Pipeline
         if (!isSolved) _logger.LogError("Nastran 솔버 구동에 실패했거나 FATAL이 발생했습니다.");
         else _logger.LogSuccess("▶ F06 / OP2 파일 생성 완료.");
       }
+      else
+      {
+        _logger.LogInfo("\n[STAGE 11] Nastran 해석(Run) 옵션이 꺼져 있어 솔버 구동을 건너뜁니다.");
+      }
 
       // ====================================================================
-      // ★ [Stage 12 & 13] F06 파싱 및 평가 (중복 출력 제거 & AnalysisType 전달)
+      // ★ [Stage 12 & 13] F06 파싱 및 평가
       // ====================================================================
       if (_checkAnalysisResult)
       {
         _logger.LogDivider("STAGE 12 & 13: 해석 결과(F06) 파싱 및 평가");
 
-        string f06Path = Path.ChangeExtension(exportPath, ".f06");
+        string f06Path = Path.ChangeExtension(exportPath, ".f06"); // 기본: 해석용 _r.f06
+
+        // Nastran을 안 돌렸을 경우, 파싱 기존 .f06 파일을 지능적으로 탐색
+        if (!_runNastranAnalysis)
+        {
+          if (!File.Exists(f06Path))
+          {
+            string originalF06 = Path.ChangeExtension(_bdfPath, ".f06");
+            if (File.Exists(originalF06))
+            {
+              f06Path = originalF06;
+              _logger.LogInfo($" -> 해석용 f06이 없어, 원본 결과 파일({Path.GetFileName(f06Path)})을 대체 파싱합니다.");
+            }
+          }
+          else
+          {
+            _logger.LogInfo($" -> 이미 존재하는 해석 결과 파일({Path.GetFileName(f06Path)})을 파싱합니다.");
+          }
+        }
 
         if (File.Exists(f06Path))
         {
-          var results = F06Parser.Parse(f06Path, _logger);
+          // F06Parser.Parse에 _logger와 debugPrint(true)를 전달하여 내부 디버그 서머리 출력
+          var results = F06Parser.Parse(f06Path, _logger, _pipelineDebug);
 
           if (results.IsParsedSuccessfully)
           {
-            // 콘솔 출력과 텍스트 저장을 ResultExporter 내부에서 한 번에 통합 처리합니다.
+            // 최종 리포트 파일 출력 및 대시보드 력
             ResultExporter.Export(exportPath, results, _analysisType, _logger);
           }
           else
           {
-            _logger.LogError("F06 파일 파싱 실패. 형식이 다르거나 FATAL 에러로 데이터가 없습니다.");
+            _logger.LogError("F06 파일 파싱 실패. 데이터가 없거나 형식이 일치하지 않습니다.");
           }
         }
         else
