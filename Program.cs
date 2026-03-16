@@ -29,7 +29,7 @@ namespace ModuleGroupUnitAnalysis
       bool logExport = true;
       bool pipelineDebug = true;
       bool verboseDebug = false;
-      bool runSanityNastranCheck = false;
+      bool runSanityNastranCheck = true;
       bool checkAnalysisResult = true;
 
       // =========================================================
